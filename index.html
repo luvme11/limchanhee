@@ -202,8 +202,8 @@ body{font-family:'Malgun Gothic','Apple SD Gothic Neo','Noto Sans KR',sans-serif
 .set{max-height:92dvh;overflow:auto}
 .set .acts .b{flex:0 0 auto;padding:8px 11px}.set .acts .b:last-child{flex:1}
 .set .acts .ok{color:#fff;background:linear-gradient(#4b8cf0,#1b4ba3);box-shadow:0 2px 0 #0e2d6b}
-.set .st{min-height:1.4em;margin:-2px 4px 0;font-size:12px;color:#6a707a}
-.set .st.good{color:#2e9a3c}.set .st.bad{color:#c8352a}
+.set .sx{min-height:1.4em;margin:6px 4px 0;font-size:12px;color:#6a707a}
+.set .sx.good{color:#2e9a3c}.set .sx.bad{color:#c8352a}
 
 /* ---------- 음악 ---------- */
 .nt{font-size:.9em;color:#ffe14d;visibility:hidden}.nt.on{visibility:visible}
@@ -216,6 +216,7 @@ body{font-family:'Malgun Gothic','Apple SD Gothic Neo','Noto Sans KR',sans-serif
 .set input[type=range]{flex:1;width:auto;margin:0;padding:0;box-shadow:none;background:none;accent-color:#3a7be0}
 .set .mrow span{min-width:2em;text-align:right;font-size:12px;color:#6a707a}
 .m-page .rd{line-height:1.35;padding:.4em .8em}.m-page .rd p{margin-top:.3em;overflow-wrap:anywhere}
+.dp .u{top:-.2em}.dp .d{bottom:-.2em}.dp .lf{left:-.2em}.dp .rt{right:-.2em}
 </style>
 </head>
 <body>
@@ -273,13 +274,13 @@ body{font-family:'Malgun Gothic','Apple SD Gothic Neo','Noto Sans KR',sans-serif
     <input id="ghBr" type="text" placeholder="main" autocomplete="off" spellcheck="false" autocapitalize="off">
     <label for="ghTok">GitHub 토큰</label>
     <input id="ghTok" type="password" placeholder="github_pat_..." autocomplete="off" spellcheck="false" autocapitalize="off">
-    <div class="st" id="ghSt"></div>
     <div class="acts"><button type="button" class="b ok" id="ghSave">저장</button><button type="button" class="b" id="ghEye">보기</button><button type="button" class="b" id="ghDel">토큰 지우기</button></div>
+    <div class="sx" id="ghSt"></div>
     <hr>
     <label for="ytUrl">유튜브 링크 (음악)</label>
     <input id="ytUrl" type="url" placeholder="https://youtu.be/..." autocomplete="off" spellcheck="false" autocapitalize="off">
     <div class="mrow"><button type="button" class="b" id="ytPlay">▶ 재생</button><input id="ytVol" type="range" min="0" max="100" step="1" aria-label="음량"><span id="ytVolN">70</span></div>
-    <div class="st" id="ytSt"></div>
+    <div class="sx" id="ytSt"></div>
     <label for="sfxVol">효과음 음량 (버튼 · 통화)</label>
     <div class="mrow"><input id="sfxVol" type="range" min="0" max="100" step="1" aria-label="효과음 음량"><span id="sfxVolN">30</span></div>
     <p class="note">토큰은 이 기기의 브라우저에만 저장돼요. 폰의 왼쪽 알약 버튼으로도 재생/정지할 수 있어요.</p>
@@ -554,13 +555,41 @@ $('flip').addEventListener('click',()=>{ty=Math.round(ry/180)*180+180;tx=0});
 $('front').addEventListener('click',()=>{ty=Math.round(ry/360)*360;tx=0});
 
 /* ---------- 설정 팝업 (옆 버튼) ---------- */
+/* 설정 팝업 버튼: 누르는 순간 실행 (모바일에서 키보드가 닫히며 버튼이 밀려 클릭이 씹히는 문제 방지) */
+function onTap(el,fn){
+  let fired=false;
+  el.addEventListener('pointerdown',e=>{if(e.button>0)return;fired=true;fn(e)});
+  const rs=()=>setTimeout(()=>{fired=false},600);
+  el.addEventListener('pointerup',rs);el.addEventListener('pointercancel',rs);
+  el.addEventListener('click',e=>{if(fired){fired=false;return}fn(e)});
+}
+function flash(btn,txt){const o=btn.dataset.o||btn.textContent;btn.dataset.o=o;btn.textContent=txt;clearTimeout(btn._f);btn._f=setTimeout(()=>{btn.textContent=btn.dataset.o},1300)}
 const K_TOK='retro_gh_token',K_CFG='retro_gh_cfg';
-const lsGet=k=>{try{return localStorage.getItem(k)||''}catch(e){return ''}};
+/* 저장소: localStorage + (Claude 미리보기의) window.storage 둘 다 사용. 토큰은 쿠키·window.name에는 절대 안 넣음 */
+const MEM={};
+(function(){
+  try{Object.assign(MEM,JSON.parse(localStorage.getItem('retro_all')||'{}'))}catch(e){}
+  ['retro_gh_token','retro_gh_cfg','retro_yt_url','retro_yt_vol','retro_sfx_vol'].forEach(k=>{try{const v=localStorage.getItem(k);if(v&&!MEM[k])MEM[k]=v}catch(e){}});
+})();
+const lsGet=k=>MEM[k]||'';
+const hasWS=!!(window.storage&&window.storage.get&&window.storage.set);
+let wsReady=!hasWS,wsFail=false;
+function persist(){
+  const j=JSON.stringify(MEM);let ok=false;
+  try{localStorage.setItem('retro_all',j);ok=localStorage.getItem('retro_all')===j}catch(e){}
+  if(hasWS&&!wsFail){
+    ok=true;
+    if(wsReady){try{Promise.resolve(window.storage.set('retro_all',j)).then(r=>{if(!r)wsFail=true}).catch(()=>{wsFail=true})}catch(e){wsFail=true}}
+  }
+  return ok;
+}
+const lsSet=(k,v)=>{MEM[k]=String(v);return persist()};
+const lsDel=k=>{delete MEM[k];return persist()};
 const ghCfg=()=>{try{return JSON.parse(lsGet(K_CFG))||{}}catch(e){return {}}};
 window.getGhToken=()=>lsGet(K_TOK);
 window.getGhConfig=()=>({repo:ghCfg().repo||'',branch:ghCfg().branch||'main',token:lsGet(K_TOK)});
 const setBg=$('setBg'),ghRepo=$('ghRepo'),ghBr=$('ghBr'),ghTok=$('ghTok'),ghSt=$('ghSt');
-const ghMsg=(t,c)=>{ghSt.textContent=t;ghSt.className='st '+(c||'')};
+const ghMsg=(t,c)=>{ghSt.textContent=t;ghSt.className='sx '+(c||'')};
 function tokState(){
   const t=lsGet(K_TOK);
   ghTok.placeholder=t?'github_pat_... (비워 두면 기존 토큰 유지)':'github_pat_...';
@@ -574,27 +603,32 @@ function openSet(){
   setBg.classList.add('on');setBg.setAttribute('aria-hidden','false');
   setTimeout(()=>ghRepo.focus(),30);
 }
-function closeSet(){setBg.classList.remove('on');setBg.setAttribute('aria-hidden','true');document.activeElement&&document.activeElement.blur()}
+function closeSet(){doSave(false);setBg.classList.remove('on');setBg.setAttribute('aria-hidden','true');document.activeElement&&document.activeElement.blur()}
 $('setX').addEventListener('click',closeSet);
 setBg.addEventListener('click',e=>{if(e.target===setBg)closeSet()});
-$('ghEye').addEventListener('click',()=>{
+onTap($('ghEye'),()=>{
   const hide=ghTok.type==='text';
   if(!hide&&!ghTok.value)ghTok.value=lsGet(K_TOK);
   ghTok.type=hide?'password':'text';$('ghEye').textContent=hide?'보기':'숨김';
 });
-$('ghSave').addEventListener('click',()=>{
+let lastManual=0;
+function doSave(manual){
+  if(!manual&&Date.now()-lastManual<1200)return true;
   const repo=ghRepo.value.trim().replace(/^https?:\/\/github\.com\//,'').replace(/\.git$/,'').replace(/\/+$/,''),br=ghBr.value.trim()||'main',tok=ghTok.value.trim();
-  if(repo&&!/^[\w.-]+\/[\w.-]+$/.test(repo)){ghMsg('저장소는 아이디/저장소 형식으로 적어 주세요','bad');return}
-  try{
-    localStorage.setItem(K_CFG,JSON.stringify({repo,branch:br}));
-    if(tok)localStorage.setItem(K_TOK,tok);
-    ghRepo.value=repo;ghBr.value=br;ghTok.value='';ghTok.type='password';$('ghEye').textContent='보기';
-    ghMsg('저장했어요 ✓ '+tokState(),'good');
-  }catch(e){ghMsg('이 환경에서는 저장이 막혀 있어요','bad')}
-});
-$('ghDel').addEventListener('click',()=>{
-  try{localStorage.removeItem(K_TOK)}catch(e){}
-  ghTok.value='';ghTok.type='password';$('ghEye').textContent='보기';ghMsg('토큰을 지웠어요. '+tokState(),'good');
+  if(repo&&!/^[\w.-]+\/[\w.-]+$/.test(repo)){if(manual)ghMsg('저장소는 아이디/저장소 형식으로 적어 주세요','bad');return false}
+  MEM[K_CFG]=JSON.stringify({repo,branch:br});
+  if(tok)MEM[K_TOK]=tok;
+  const yu=ytUrl.value.trim();if(yu&&ytParse(yu))MEM[K_YT]=yu;
+  const ok=persist();
+  if(manual){ghRepo.value=repo;ghBr.value=br;ghTok.value='';ghTok.type='password';$('ghEye').textContent='보기'}
+  if(ok){ghMsg((manual?'저장했어요 ✓ ':'자동 저장됨 ✓ ')+tokState(),'good');if(manual)flash($('ghSave'),'저장됨 ✓')}
+  else ghMsg('이 환경에서는 저장이 막혀 있어서 새로고침하면 사라져요','bad');
+  return ok;
+}
+onTap($('ghSave'),()=>{lastManual=Date.now();doSave(true)});
+onTap($('ghDel'),()=>{
+  lsDel(K_TOK);
+  ghTok.value='';ghTok.type='password';$('ghEye').textContent='보기';ghMsg('토큰을 지웠어요. '+tokState(),'good');flash($('ghDel'),'지움 ✓');
 });
 setBg.addEventListener('keydown',e=>{
   if(e.key==='Escape'){e.stopPropagation();closeSet()}
@@ -606,7 +640,7 @@ const K_YT='retro_yt_url',K_VOL='retro_yt_vol';
 let vol=parseInt(lsGet(K_VOL),10);if(!(vol>=0&&vol<=100))vol=70;
 let yt=null,ytKey='',ytApi=0;const ytQ=[];
 const ytUrl=$('ytUrl'),ytVol=$('ytVol'),ytSt=$('ytSt');
-const musicMsg=(t,c)=>{ytSt.textContent=t;ytSt.className='st '+(c||'')};
+const musicMsg=(t,c)=>{ytSt.textContent=t;ytSt.className='sx '+(c||'')};
 function ytParse(u){
   try{
     u=(u||'').trim();const x=new URL(/^https?:\/\//i.test(u)?u:'https://'+u);
@@ -638,8 +672,8 @@ function musicUi(){
 }
 function ytState(e){
   const st=e.data;
-  if(st===1){ytPlaying=true;musicMsg('재생 중 ♪','good');musicUi()}
-  else if(st===2){ytPlaying=false;musicMsg('일시정지');musicUi()}
+  if(st===1){ytPlaying=true;musicMsg('');musicUi()}
+  else if(st===2){ytPlaying=false;musicMsg('');musicUi()}
   else if(st===0){
     try{if(yt.getPlaylist&&yt.getPlaylist())yt.playVideoAt(0);else{yt.seekTo(0);yt.playVideo()}}catch(_){ytPlaying=false;musicUi()}
   }
@@ -672,21 +706,39 @@ function musicToggle(){
   if(!lsGet(K_YT)){openSet();musicMsg('먼저 유튜브 링크를 넣어 주세요');return}
   musicStart();
 }
-$('ytPlay').addEventListener('click',()=>{
+onTap($('ytPlay'),()=>{
   const raw=ytUrl.value.trim();
   if(!raw){musicToggle();return}
   const l=ytParse(raw);
   if(!l){musicMsg('유튜브 링크를 확인해 주세요','bad');return}
-  try{localStorage.setItem(K_YT,raw)}catch(e){}
+  lsSet(K_YT,raw);
   if(ytPlaying&&yt&&ytKey===l.v+'|'+l.list){yt.pauseVideo();return}
   musicStart(raw);
 });
 ytVol.value=vol;$('ytVolN').textContent=vol;
 ytVol.addEventListener('input',()=>{
   vol=+ytVol.value;$('ytVolN').textContent=vol;
-  try{localStorage.setItem(K_VOL,String(vol))}catch(e){}
+  lsSet(K_VOL,vol);
   if(yt&&yt.setVolume)yt.setVolume(vol);
 });
+
+/* ---------- 자동 저장 / 불러오기 ---------- */
+let asT;
+const autoSave=()=>{clearTimeout(asT);asT=setTimeout(()=>doSave(false),500)};
+[ghRepo,ghBr,ghTok,ytUrl].forEach(el=>{el.addEventListener('input',autoSave);el.addEventListener('blur',()=>{clearTimeout(asT);doSave(false)})});
+addEventListener('pagehide',()=>{if(setBg.classList.contains('on'))doSave(false)});
+(async function(){
+  if(!hasWS)return;
+  try{
+    const r=await window.storage.get('retro_all');
+    if(r&&r.value){
+      const o=JSON.parse(r.value);for(const k in o)if(!MEM[k])MEM[k]=o[k];
+      const v=parseInt(lsGet(K_VOL),10);if(v>=0&&v<=100){vol=v;if(yt&&yt.setVolume)yt.setVolume(vol)}
+      if(MG)MG.gain.value=sfxVol()/100*.4;
+    }
+  }catch(e){}
+  wsReady=true;persist();
+})();
 
 /* ---------- 효과음 (WebAudio로 만든 소리, 작게) ---------- */
 function sfxVol(){const v=parseInt(lsGet('retro_sfx_vol'),10);return v>=0&&v<=100?v:30}
@@ -721,7 +773,7 @@ function stopRing(){
 document.addEventListener('pointerdown',e=>{if(e.target.closest&&e.target.closest('button[data-k],.side'))sClick()},true);
 $('sfxVol').addEventListener('input',()=>{
   const v=+$('sfxVol').value;$('sfxVolN').textContent=v;
-  try{localStorage.setItem('retro_sfx_vol',String(v))}catch(e){}
+  lsSet('retro_sfx_vol',v);
   if(MG)MG.gain.value=v/100*.4;
 });
 $('sfxVol').addEventListener('change',sClick);
